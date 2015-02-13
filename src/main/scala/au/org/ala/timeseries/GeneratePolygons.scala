@@ -17,25 +17,31 @@ import scala.collection.JavaConversions._
  */
 object GeneratePolygons {
 
+  val YEAR_KEYWORD = "year"
+  val MONTH_KEYWORD = "month"
+
   def main(args:Array[String]): Unit = {
 
-    if(args.length != 1){
-      println("Please supply a local file path or HDFS path.")
+    if(args.length != 2 || (args(1) != YEAR_KEYWORD && args(1) != MONTH_KEYWORD)){
+      println("Please supply a local file path or HDFS path, and specify 'year' or 'month'.")
       return
     }
+
+    val isYear = (args(1) == YEAR_KEYWORD)
 
     val conf = new SparkConf().setAppName("Species Time-series Polygons")
     val sc = new SparkContext(conf)
 
     // /Users/mar759/Downloads/small-insecta.csv
-//    val lines = sc.textFile("/Users/mar759/Downloads/small-insecta.csv")
     val lines = sc.textFile(args(0))
 
     val scientificName_idx = 2
     val family_idx = 3
     val decimalLatitude_idx = 4
     val decimalLongitude_idx = 5
+    val month_idx = 7
     val year_idx = 8
+    val temporal_idx = if(isYear) year_idx else month_idx
 
     //filter points without a year
     val nameLatLngYr = lines.map(line => {
@@ -44,7 +50,7 @@ object GeneratePolygons {
         //Family|scientificName, year, latitude, longitude, spatiallyValid
         List(
           List(parts(family_idx), parts(scientificName_idx)).mkString("|"),
-          parts(year_idx), //year
+          parts(temporal_idx), //year
           parts(decimalLatitude_idx), //latitude
           parts(decimalLongitude_idx) //longitude
         )
@@ -54,7 +60,11 @@ object GeneratePolygons {
     })
 
     //create the collections -  org.apache.spark.rdd.RDD[(String, Iterable[(String, String, String, String)])]
-    val groupsByNameAndYear = nameLatLngYr.groupBy(groupByNameAndDecade)
+    val groupsByNameAndYear = if(isYear) {
+      nameLatLngYr.groupBy(groupByNameAndDecade)
+    } else {
+      nameLatLngYr.groupBy(groupByNameAndYearOrMonth)
+    }
 
     //map this to sciName+year, count for now
     //compute the hull for a year
@@ -65,7 +75,7 @@ object GeneratePolygons {
   //nameLatLngYr.saveAsTextFile("nameLatLngYr"
   //map to set of collections
   //name, year, lat, lng
-  def groupByNameAndYear(x:List[String]) = x(0) + "\t" + x(1)
+  def groupByNameAndYearOrMonth(x:List[String]) = x(0) + "\t" + x(1)
 
   def groupByNameAndDecade(x:List[String]) = {
     if(x(1) != ""){
